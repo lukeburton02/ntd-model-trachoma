@@ -599,6 +599,7 @@ def Set_inits(params, demog, sim_params):
         
         time_since_vaccinated = np.zeros(params['N']) ,
         
+        ids = np.arange(params['N'])
     )
 
     return vals
@@ -609,6 +610,7 @@ def Reset_vals(vals, reset_indivs, params):
     Set initial values.
     '''
     numResetIndivs = len(reset_indivs)
+    maxID = max(vals['ids'])
     vals['Age'][reset_indivs] = 0
     vals['IndI'][reset_indivs] = 0
     vals['IndD'][reset_indivs] = 0
@@ -621,7 +623,8 @@ def Reset_vals(vals, reset_indivs, params):
     vals['Ind_ID_period_base'][reset_indivs] = np.random.poisson(lam=params['av_ID_duration'], size=numResetIndivs)
     vals['Ind_D_period_base'][reset_indivs] = np.random.poisson(lam=params['av_D_duration'], size=numResetIndivs),
     vals['bact_load'][reset_indivs] = 0
-
+    new_ids = np.arange(maxID + 1, maxID + numResetIndivs + 1)
+    vals['ids'][reset_indivs] = new_ids
     return vals
 
 
