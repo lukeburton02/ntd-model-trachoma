@@ -333,7 +333,7 @@ def countMDATreatments(treated_people, demog, vals, i):
         ] = MDAages
     
     vals["n_treatments"][
-            str(i) + ", MDA treatments "
+            str(i) + ", MDA treatments"
         ] = treatmentCounts
     
 
