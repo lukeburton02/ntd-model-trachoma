@@ -302,10 +302,14 @@ def doMDAAgeRange(vals, params, ageStart, ageEnd):
         cured_older = treated_older[np.random.uniform(size=len(treated_older)) < (params['MDA_Eff'])]
     return np.append(cured_babies, cured_older), np.append(treated_babies, treated_older)
 
-def MDA_timestep_Age_range(vals, params, ageStart, ageEnd):
+def MDA_timestep_Age_range(vals, params, ageStart, ageEnd, demog, i):
 
     '''
-    This is time step in which MDA occurs
+    Perform an MDA. This will do an MDA over specified ages (`ageStart`-`ageEnd`). We will also store the number of
+    people who are treated in each yearly age group in `vals`, along with the number of people who are in
+    each age group using the `countMDATreatments` function. This uses `demog` and `i` for the storing of information,
+    as `demog` holds the highest allowable age in the population, allowing us to define which age groups we care about.
+    we need `i` as this is the time of the MDA, so we store this when adding the data on who is treated to `vals`.
     '''
 
     # Id who is treated and cured
@@ -314,8 +318,25 @@ def MDA_timestep_Age_range(vals, params, ageStart, ageEnd):
     # Set treated/cured indivs infection status and bacterial load to 0
     vals['IndI'][cured_people.astype(int)] = 0       # clear infection they become I=0
     vals['bact_load'][cured_people.astype(int)] = 0  # stop being infectious
-
+    countMDATreatments(treated_people, demog, vals, i) 
     return vals, len(treated_people)
+
+def countMDATreatments(treated_people, demog, vals, i):
+    '''
+    Get counts for the number of people who are treated in each yearly age group along with the number of people
+    total who are in each age group. We then store this in vals to be output later.
+    '''
+    MDAages, _ =  np.histogram(vals['Age']/52, bins=np.arange(demog['max_age']/52 + 1))
+    treatmentCounts, _ = np.histogram(vals['Age'][treated_people.astype(int)]/52, bins=np.arange(demog['max_age']/52 + 1))
+    vals["n_treatments_population"][
+            str(i) + ", MDA treatments number"
+        ] = MDAages
+    
+    vals["n_treatments"][
+            str(i) + ", MDA treatments "
+        ] = treatmentCounts
+    
+
 
 def vacc_timestep_Age_range(params, vals, vacc_round, VaccData):
 
@@ -640,6 +661,23 @@ def Check_and_init_MDA_treatment_state(params, vals, MDAData, numpy_state):
 
     return vals
 
+def Check_and_init_MDA_and_survey_counts(vals, numpy_state):
+
+    '''
+    Initialise counts for MDA and surveys. This will enable us to store data related to the number 
+    of people who are treated and surveyed for each round of MDA or surveying, these will be stored in 'n_treatments'
+    and 'n_surveys' respectively. the number of people who are in each age group at these times will be stored in
+    'n_treatments_population' and 'n_surveys_population' respectively.
+    '''
+
+    np.random.set_state(numpy_state)
+    if not set(["n_treatments","n_treatments_population", "n_surveys", "n_surveys_population"]).issubset(vals.keys()):
+        vals["n_treatments"] = {}
+        vals["n_treatments_population"] = {}
+        vals["n_surveys"] = {}
+        vals["n_surveys_population"] = {}
+    return vals
+
 def init_ages(params, demog, numpy_state):
 
     '''
@@ -709,7 +747,7 @@ def sim_Ind_MDA(params, vals, timesim, burnin, demog, bet, MDA_times, MDAData, v
                 # check if these have changed here, and if they have, then we re-draw the probabilities
                 vals = check_if_we_need_to_redraw_probability_of_treatment(cov, systematic_non_compliance, vals)
                 # do the MDA for the age range specified by ageStart and ageEnd
-                vals, num_treated_people = MDA_timestep_Age_range(vals, params, ageStart, ageEnd)
+                vals, num_treated_people = MDA_timestep_Age_range(vals, params, ageStart, ageEnd, demog, i)
                 # keep track of doses and coverage of the MDA to be output later.
                 # currently within this function, these aren't output 
                 nDoses, numMDA, coverage = update_MDA_information_for_output(MDAData, MDA_round_current, num_treated_people,
@@ -898,7 +936,7 @@ def sim_Ind_MDA_Include_Survey(params, vals, timesim, burnin,
                     # check if these have changed here, and if they have, then we re-draw the probabilities
                     vals = check_if_we_need_to_redraw_probability_of_treatment(cov, systematic_non_compliance, vals)
                     # do the MDA for the age range specified by ageStart and ageEnd
-                    vals, num_treated_people = MDA_timestep_Age_range(vals, params, ageStart, ageEnd)
+                    vals, num_treated_people = MDA_timestep_Age_range(vals, params, ageStart, ageEnd, demog, i)
                     # keep track of doses and coverage of the MDA to be output later.
                     nDoses, numMDA, coverage = update_MDA_information_for_output(MDAData, MDA_round_current, num_treated_people,
                                                                                     vals, ageStart, ageEnd, nDoses, numMDA, coverage)
@@ -1174,6 +1212,7 @@ def run_single_simulation(pickleData, params, timesim, burnin, demog, beta, MDA_
     vals = copy.deepcopy(pickleData)
     vals = Check_and_init_vaccination_state(params,vals)
     vals = Check_and_init_MDA_treatment_state(params, vals, MDAData, numpy_state)
+    vals = Check_and_init_MDA_and_survey_counts(vals, numpy_state)
     params['N'] = len(vals['IndI'])
     results = sim_Ind_MDA_Include_Survey(params=params,
                                         vals = vals, timesim = timesim,
@@ -1197,3 +1236,4 @@ def seed_to_state(seed):
 
 
     
+
