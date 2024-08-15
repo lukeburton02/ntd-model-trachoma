@@ -1,5 +1,5 @@
 import numpy as np
-from datetime import date
+from datetime import date, timedelta
 import matplotlib.pyplot as plt
 import pandas as pd
 import copy
@@ -318,23 +318,21 @@ def MDA_timestep_Age_range(vals, params, ageStart, ageEnd, demog, i):
     # Set treated/cured indivs infection status and bacterial load to 0
     vals['IndI'][cured_people.astype(int)] = 0       # clear infection they become I=0
     vals['bact_load'][cured_people.astype(int)] = 0  # stop being infectious
-    countMDATreatments(treated_people, demog, vals, i) 
+    countMDATreatments(treated_people,  ageStart, ageEnd, demog, vals, i) 
     return vals, len(treated_people)
 
-def countMDATreatments(treated_people, demog, vals, i):
+def countMDATreatments(treated_people, ageStart, ageEnd, demog, vals, i):
     '''
     Get counts for the number of people who are treated in each yearly age group along with the number of people
     total who are in each age group. We then store this in vals to be output later.
     '''
     MDAages, _ =  np.histogram(vals['Age']/52, bins=np.arange(demog['max_age']/52 + 1))
     treatmentCounts, _ = np.histogram(vals['Age'][treated_people.astype(int)]/52, bins=np.arange(demog['max_age']/52 + 1))
-    vals["n_treatments_population"][
-            str(i) + ", MDA treatments number"
-        ] = MDAages
+    label = str(i) + ", MDA treatments (" + str(ageStart) +"-" +str(ageEnd) + ")"
+    vals["n_treatments"][label] = treatmentCounts
+    vals["n_treatments_population"][label + " number"] = MDAages
     
-    vals["n_treatments"][
-            str(i) + ", MDA treatments"
-        ] = treatmentCounts
+    
     
 
 
@@ -926,21 +924,27 @@ def sim_Ind_MDA_Include_Survey(params, vals, timesim, burnin,
             vals['nSurvey'] += 1
         
         if i in MDA_times:
-            if surveyPass == 0:
-                MDA_round = np.where(MDA_times == i)[0]
-                for l in range(len(MDA_round)):
-                    MDA_round_current = MDA_round[l]
-                    # we want to get the data corresponding to this MDA from the MDAdata
-                    ageStart, ageEnd, cov, systematic_non_compliance = get_MDA_params(MDAData, MDA_round_current, vals)
-                    # if cov or systematic non compliance have changed we need to re-draw the treatment probabilities
-                    # check if these have changed here, and if they have, then we re-draw the probabilities
-                    vals = check_if_we_need_to_redraw_probability_of_treatment(cov, systematic_non_compliance, vals)
-                    # do the MDA for the age range specified by ageStart and ageEnd
-                    vals, num_treated_people = MDA_timestep_Age_range(vals, params, ageStart, ageEnd, demog, i)
-                    # keep track of doses and coverage of the MDA to be output later.
-                    nDoses, numMDA, coverage = update_MDA_information_for_output(MDAData, MDA_round_current, num_treated_people,
-                                                                                    vals, ageStart, ageEnd, nDoses, numMDA, coverage)
-                
+
+            MDA_round = np.where(MDA_times == i)[0]
+            for l in range(len(MDA_round)):
+                MDA_round_current = MDA_round[l]
+                # we want to get the data corresponding to this MDA from the MDAdata
+                ageStart, ageEnd, cov, systematic_non_compliance = get_MDA_params(MDAData, MDA_round_current, vals)
+                # if we have passed the survey, then we want to set coverage to 0, so that no one is treated
+                # we will still "enact" the MDA, so that we will get an output for the MDA even if no one is treated
+                # this means that we will get the same number of MDA's no matter when we pass the survey, so that
+                # different runs can be included in the same outputs file.
+                if surveyPass == 1:
+                    cov = 0
+                # if cov or systematic non compliance have changed we need to re-draw the treatment probabilities
+                # check if these have changed here, and if they have, then we re-draw the probabilities
+                vals = check_if_we_need_to_redraw_probability_of_treatment(cov, systematic_non_compliance, vals)
+                # do the MDA for the age range specified by ageStart and ageEnd
+                vals, num_treated_people = MDA_timestep_Age_range(vals, params, ageStart, ageEnd, demog, i)
+                # keep track of doses and coverage of the MDA to be output later.
+                nDoses, numMDA, coverage = update_MDA_information_for_output(MDAData, MDA_round_current, num_treated_people,
+                                                                                vals, ageStart, ageEnd, nDoses, numMDA, coverage)
+            
                 
         if i in vacc_times:
       
@@ -1014,7 +1018,7 @@ def getResultsIHME(results, demog, params, outputYear):
     '''
     max_age = demog['max_age'] // 52 # max_age in weeks
 
-    df = pd.DataFrame(0, range(len(outputYear)*4*60 ), columns= range(len(results)+4))
+    df = pd.DataFrame(0, range(len(outputYear)*4*max_age ), columns= range(len(results)+4))
     df = df.rename(columns={0: "Time", 1: "age_start", 2: "age_end", 3: "measure"}) 
     
     for i in range(len(results)):
@@ -1082,6 +1086,44 @@ def getResultsIHME(results, demog, params, outputYear):
         df = df.rename(columns={i+4: "draw_"+ str(i)}) 
     return df
 
+
+def outputNumberTreatmentAgeGroup( results, sim_params, demog, Start_date):
+    max_age = demog['max_age'] // 52 # max_age in weeks
+    n_MDAS = len(results[0][0]["n_treatments"].items())
+    df = pd.DataFrame(0, range(n_MDAS * 2 * max_age ), columns= range(len(results)+4))
+    df = df.rename(columns={0: "Time", 1: "age_start", 2: "age_end", 3: "measure"}) 
+    for i in range(len(results)):
+        ind = 0
+        d = copy.deepcopy(results[i][0])
+    
+        for key, numperPeopleTreatedAtMDA in d["n_treatments"].items():
+            t = float(key.split(",")[0])
+            measure = str(key.split(",")[1])
+            n_weeks_after_start_date_for_MDA = t - sim_params['burnin'] 
+            MDA_date = Start_date + timedelta(weeks=n_weeks_after_start_date_for_MDA)
+            MDA_year = MDA_date.year
+            numberPeopleAtMDA = d["n_treatments_population"][key + " number"]
+            if i == 0:
+                df.iloc[range(ind, ind+max_age), 0] = np.repeat(MDA_year,max_age)
+                df.iloc[range(ind, ind+max_age), 1] = range(0, max_age)
+                df.iloc[range(ind, ind+max_age), 2] = range(1, max_age + 1)
+                df.iloc[range(ind, ind+max_age), 3] = np.repeat(measure, max_age)
+                df.iloc[range(ind, ind+max_age), i+4] = numperPeopleTreatedAtMDA
+                ind += max_age
+                df.iloc[range(ind, ind+max_age), 0] = np.repeat(MDA_year,max_age)
+                df.iloc[range(ind, ind+max_age), 1] = range(0, max_age)
+                df.iloc[range(ind, ind+max_age), 2] = range(1, max_age + 1)
+                df.iloc[range(ind, ind+max_age), 3] = np.repeat( measure + " number", max_age)
+                df.iloc[range(ind, ind+max_age), i+4] = numberPeopleAtMDA
+                ind += max_age
+            else:
+                df.iloc[range(ind, ind+max_age), i+4] = numperPeopleTreatedAtMDA
+                ind += max_age
+                df.iloc[range(ind, ind+max_age), i+4] = numberPeopleAtMDA
+                ind += max_age
+        for i in range(len(results)):
+            df = df.rename(columns={i+4: "draw_"+ str(i)}) 
+    return df
 
 def getInterventionAgeRanges(coverageFileName, intervention):
 
