@@ -305,11 +305,42 @@ def doMDAAgeRange(vals, params, ageStart, ageEnd):
 def MDA_timestep_Age_range(vals, params, ageStart, ageEnd, demog, i):
 
     '''
-    Perform an MDA. This will do an MDA over specified ages (`ageStart`-`ageEnd`). We will also store the number of
-    people who are treated in each yearly age group in `vals`, along with the number of people who are in
-    each age group using the `countMDATreatments` function. This uses `demog` and `i` for the storing of information,
-    as `demog` holds the highest allowable age in the population, allowing us to define which age groups we care about.
+    Perform an MDA over specified ages (`ageStart`-`ageEnd`). 
+    
+    
+    We will also store the number of people who are treated in each yearly age group in `vals`,
+    along with the number of people who are in each age group using the `countMDATreatments` function. 
+    This uses `demog` and `i` for the storing of information, as `demog` holds the highest allowable 
+    age in the population, allowing us to define which age groups we care about.
     we need `i` as this is the time of the MDA, so we store this when adding the data on who is treated to `vals`.
+
+    Parameters
+    ----------
+    vals : dict
+        Contains current state of simulation
+
+    params : dict 
+        Parameter dictionary with all parameters not associated with MDA
+
+    ageStart: int
+        Youngest age targeted by MDA
+
+    ageEnd: int
+        Oldest age targeted by MDA
+    
+    demog:
+        Details about the demography of the population
+
+    i: 
+        Time point within the simulation that we are currently at
+    
+
+    Returns
+    -------
+    dict
+        vals
+        len(treated_people): the number of people who are treated by the MDA
+
     '''
 
     # Id who is treated and cured
@@ -323,8 +354,8 @@ def MDA_timestep_Age_range(vals, params, ageStart, ageEnd, demog, i):
 
 def countMDATreatments(treated_people, ageStart, ageEnd, demog, vals, i):
     '''
-    Get counts for the number of people who are treated in each yearly age group along with the number of people
-    total who are in each age group. We then store this in vals to be output later.
+    Get counts for the number of people who are treated in each yearly age group along with the total number of people
+    who are in each age group. We then store this in vals to be output later.
     '''
     MDAages, _ =  np.histogram(vals['Age']/52, bins=np.arange(demog['max_age']/52 + 1))
     treatmentCounts, _ = np.histogram(vals['Age'][treated_people.astype(int)]/52, bins=np.arange(demog['max_age']/52 + 1))
@@ -332,7 +363,7 @@ def countMDATreatments(treated_people, ageStart, ageEnd, demog, vals, i):
     vals["n_treatments"][label] = treatmentCounts
     vals["n_treatments_population"][label + " number"] = MDAages
     
-    
+
     
 
 
@@ -1087,7 +1118,35 @@ def getResultsIHME(results, demog, params, outputYear):
     return df
 
 
-def outputNumberTreatmentAgeGroup( results, sim_params, demog, Start_date):
+def outputMDATreatmentsAndPopByAge( results, sim_params, demog, Start_date):
+    
+    '''
+    Output the number of MDA treatments and population by age group for each MDA 
+    which was included in the simulation
+
+    Parameters
+    ----------
+    results :
+        Contains all outputted results from the simulation
+    
+    sim_params :
+        details of the simulation. We use the length of the burnin from here to calculate
+        the time at which the MDA was done
+
+    demog:
+        informatin on the demography of the population. We use the maximum age from here
+        to calculate how many age groups which are in the population
+
+    Start_date : 
+        The date at which the burn in will end and the simulations which we are interested in begins
+
+    Returns
+    -------
+    df : dataframe
+        A dataframe which gives the year, age group and the number of treatments given for
+        each MDA. It also gives the number of people in each age group corresponding to each MDA
+
+    '''
     max_age = demog['max_age'] // 52 # max_age in weeks
     n_MDAS = len(results[0][0]["n_treatments"].items())
     df = pd.DataFrame(0, range(n_MDAS * 2 * max_age ), columns= range(len(results)+4))
