@@ -800,8 +800,12 @@ def sim_Ind_MDA_Include_Survey(params, vals, timesim, burnin,
     np.random.set_state(numpy_state)
 
     #vacc_time = params['vacc_time']
-    prevalence = []
-    infections = []
+    prevalence = [] # 1-9
+    infections = [] # 1-9
+    
+    prev_ages = [[] for _ in range(10)]
+    inf_ages = [[] for _ in range(10)]
+    
     max_age = demog['max_age'] // 52 # max_age in weeks
     yearly_threshold_infs = np.zeros(( timesim+1, int(demog['max_age']/52)))
    # get initial prevalence in 1-9 year olds. will decide how many MDAs (if any) to do before another survey
@@ -937,6 +941,13 @@ def sim_Ind_MDA_Include_Survey(params, vals, timesim, burnin,
         yearly_threshold_infs[i, :] = a / params['N']
         # check if time to save variables to make Endgame outputs
         
+        for i in range(10):
+            children_i = np.logical_and(vals['Age'] >= i*52, vals['Age'] < (i+1)*52)
+            n_children_i = np.count_nonzero(children_i)
+            diseased_children_i = np.count_nonzero(vals['IndD'][children_i])
+            infected_children_i = np.count_nonzero(vals['IndI'][children_i])
+            prev_ages[i].append(diseased_children_i / n_children_i)
+            inf_ages[i].append(infected_children_i / n_children_i)        
 
             
     vals['Yearly_threshold_infs'] = yearly_threshold_infs
@@ -944,6 +955,8 @@ def sim_Ind_MDA_Include_Survey(params, vals, timesim, burnin,
     # vals['True_Infections_Disease_children_1_9'] = infections # save the infections in children aged 1-9 = TYPO???
     vals['True_Prev_Infection_children_1_9'] = infections
     vals['State'] = np.random.get_state() # save the state of the simulations
+    vals['age_prevalences'] = prev_ages
+    vals['age_infections'] = inf_ages
 
     return vals, results
 
