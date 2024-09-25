@@ -157,12 +157,28 @@ def stepF_fixed(vals, params, demog, bet):
     # Step 2: Calculate infection pressure from previous time step and choose infected individuals
     # Susceptible individuals acquiring new infections. This gives a lambda
     # for each individual dependent on age and disease status.
-    lambda_step = 1 - np.exp(- getlambdaStep(params=params, Age=vals['Age'], bact_load=vals['bact_load'],
+    
+    force, force_per_group = getlambdaStep(params=params, Age=vals['Age'], bact_load=vals['bact_load'],
     IndD=vals['IndD'], vaccinated=vals['vaccinated'],time_since_vaccinated=vals['time_since_vaccinated'],
-    bet=bet, demog=demog))
+    bet=bet, demog=demog) # Added by LUKE
+    
+    lambda_step = 1 - np.exp(- force)
     # New infections
     newInf = Ss[np.random.uniform(size=len(Ss)) < lambda_step[Ss]]
-
+    
+    # Tracks age of new infections - could divide by len(newInf) to get proportion, although the graph is unsightly
+    infected_ages = vals['Age'][newInf] # ages of newly infected people
+    inf_count_y = len(np.where(infected_ages < 9*52)[0]) # number of newly infected young children
+    inf_count_o = len(np.where((infected_ages >= 9*52) & (infected_ages < 15*52))[0])
+    inf_count_a = len(np.where(infected_ages > 15*52)[0])
+    new_inf_counts = [inf_count_y, inf_count_o, inf_count_a]
+    
+    # proportion of each GROUP infected this week, not prop of all new infections gone to each group
+    pop_y = len(np.where(vals['Age'] < 9*52)[0])
+    pop_o = len(np.where((vals['Age'] >= 9*52) & (vals['Age'] < 15*52))[0])
+    pop_a = len(np.where(vals['Age'] > 15*52)[0])
+    new_inf_props = [inf_count_y/pop_y, inf_count_o/pop_o, inf_count_a/pop_a]
+    
     # Step 3: Identify transitions
     newDis = np.where(vals['T_latent'] == 1)[0]  # Designated latent period for that individual is about to expire
     newClearInf = np.where(vals['T_ID'] == 1)[0]  # Designated infectious period for that individual is about to expire
@@ -222,7 +238,7 @@ def stepF_fixed(vals, params, demog, bet):
     #me = 2
     #print(vals['Age'][me],vals['No_Inf'][me],vals['bact_load'][me],':',vals['IndI'][me],vals['IndD'][me],vals['T_latent'][me],vals['T_ID'][me],vals['T_D'][me])
 
-    return vals
+    return vals, force_per_group, new_inf_counts, new_inf_props
 
 
 def get_Intervention_times(Intervention_dates, Start_date, burnin):
@@ -266,8 +282,10 @@ def getlambdaStep(params, Age, bact_load, IndD, bet, demog,
     prob_reduction = np.maximum(prob_reduction,0)
 
     returned[vaccinated] = (1 - prob_reduction[vaccinated]) * returned[vaccinated]
-
-    return returned
+    
+    force_per_group = [A[0], A[1], A[2]] # forces experienced by each group, for comparing rate of infection
+    
+    return returned, force_per_group
 
 def Reset(Age, demog, params):
 
@@ -370,7 +388,8 @@ def ID_period_function(newDis, params, vals):
     Ind_ID_period_base  =vals['Ind_ID_period_base'][newDis]
     No_Inf = vals['No_Inf'][newDis]
     id_periods = (Ind_ID_period_base - params['min_ID']) * np.exp(-params['inf_red'] * (No_Inf - 1)) + params['min_ID']
-
+    #id_periods = 0 * (Ind_ID_period_base - params['min_ID']) * np.exp(-params['inf_red'] * (No_Inf - 1)) + params['min_ID'] # EXPERIMENTAL
+    
     # If vaccinated reduce bacterial load by a fixed proportion
     prob_reduction = params["vacc_reduce_duration"]
     vaccinated = vals['vaccinated'][newDis]
@@ -387,8 +406,8 @@ def D_period_function(Ind_D_period_base, No_Inf, params, Age):
     '''
     Function to give duration of disease only period.
     '''
-    ag = 0.00179
-    aq = 0.0368
+    ag = 0.00179 # was 0.00179
+    aq = 0.0368 # was 0.0368
     T_ID = np.round( params['min_D'] + ( Ind_D_period_base - params['min_D'] ) * np.exp( -aq * ( No_Inf-1 ) -ag * Age ) )
 
     return T_ID
@@ -413,7 +432,7 @@ def bacterialLoad(newInfectious,params,vals):
     '''
     No_Inf = vals['No_Inf'][newInfectious]
     b1 = 1
-    ep2 = 0.114
+    ep2 = 0.114 # was 0.114
 
     bacterial_loads = b1 * np.exp((No_Inf - 1) * - ep2)
     
@@ -803,8 +822,19 @@ def sim_Ind_MDA_Include_Survey(params, vals, timesim, burnin,
     prevalence = [] # 1-9
     infections = [] # 1-9
     
+    # this will store prevalence of disease and infection for each individual age group up to 10
     prev_ages = [[] for _ in range(10)]
     inf_ages = [[] for _ in range(10)]
+    
+    # for specified dates, we will store everyone's age, infection count, and bactLoad, used for plotting distributions by age
+    dh_dates = [5667, 5824, 5928, 6085]
+    ages = {}
+    inf_counts = {}
+    bacteria = {}
+    
+    forces = [[] for _ in range(3)] # stores forces of infection for each group (young, old, adults) at each time
+    new_infs = [[] for _ in range(3)] # stores number (or proportion) of new infections gone to each group
+    new_props = [[] for _ in range(3)] # stores the proportion of each group who've just become infected
     
     max_age = demog['max_age'] // 52 # max_age in weeks
     yearly_threshold_infs = np.zeros(( timesim+1, int(demog['max_age']/52)))
@@ -926,8 +956,14 @@ def sim_Ind_MDA_Include_Survey(params, vals, timesim, burnin,
         #else:  removed and deleted one indent in the line below to correct mistake.
         #if np.logical_and(i == surveyTime, surveyPass==0):     
        
-        vals = stepF_fixed(vals=vals, params=params, demog=demog, bet=betas[i])
-
+        vals, force_per_group, new_inf_counts, new_inf_props = stepF_fixed(vals=vals, params=params, demog=demog, bet=betas[i])
+        # Updated by LUKE to return force and number of new infections per age group (0-9, 9-15, 15+)        
+        
+        for g in range(3): # update the weekly information for each group. update the 3 if the number of groups changes
+            forces[g].append(force_per_group[g])
+            new_infs[g].append(new_inf_counts[g])
+            new_props[g].append(new_inf_props[g])
+    
         children_ages_1_9 = np.logical_and(vals['Age'] < 10 * 52, vals['Age'] >= 52)
         n_children_ages_1_9 = np.count_nonzero(children_ages_1_9)
         n_true_diseased_children_1_9 = np.count_nonzero(vals['IndD'][children_ages_1_9])
@@ -941,6 +977,13 @@ def sim_Ind_MDA_Include_Survey(params, vals, timesim, burnin,
         yearly_threshold_infs[i, :] = a / params['N']
         # check if time to save variables to make Endgame outputs
         
+        # if we are at one of the specified dates, save the ages/infections/bacteria so we can plot the distribution
+        if i in dh_dates:
+            ages[str(i)] = copy.deepcopy(vals['Age'])
+            inf_counts[str(i)] = copy.deepcopy(vals['No_Inf'])
+            bacteria[str(i)] = copy.deepcopy(vals['bact_load'])
+        
+        # save the prevalence of each individual age group up to 10
         for i in range(10):
             children_i = np.logical_and(vals['Age'] >= i*52, vals['Age'] < (i+1)*52)
             n_children_i = np.count_nonzero(children_i)
@@ -957,6 +1000,12 @@ def sim_Ind_MDA_Include_Survey(params, vals, timesim, burnin,
     vals['State'] = np.random.get_state() # save the state of the simulations
     vals['age_prevalences'] = prev_ages
     vals['age_infections'] = inf_ages
+    vals['ages'] = ages
+    vals['inf_counts'] = inf_counts
+    vals['bacteria'] = bacteria
+    vals['forces'] = forces
+    vals['new_infs'] = new_infs
+    vals['new_props'] = new_props
 
     return vals, results
 

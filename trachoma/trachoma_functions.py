@@ -800,8 +800,11 @@ def sim_Ind_MDA_Include_Survey(params, vals, timesim, burnin,
     np.random.set_state(numpy_state)
 
     #vacc_time = params['vacc_time']
-    prevalence = []
-    infections = []
+    prevalence_children_1_9 = []
+    prevalence_All = []
+    infections_children_1_9 = []
+    infections_All = []
+    
     max_age = demog['max_age'] // 52 # max_age in weeks
     yearly_threshold_infs = np.zeros(( timesim+1, int(demog['max_age']/52)))
    # get initial prevalence in 1-9 year olds. will decide how many MDAs (if any) to do before another survey
@@ -928,9 +931,14 @@ def sim_Ind_MDA_Include_Survey(params, vals, timesim, burnin,
         n_children_ages_1_9 = np.count_nonzero(children_ages_1_9)
         n_true_diseased_children_1_9 = np.count_nonzero(vals['IndD'][children_ages_1_9])
         n_true_infected_children_1_9 = np.count_nonzero(vals['IndI'][children_ages_1_9])
-        prevalence.append(n_true_diseased_children_1_9 / n_children_ages_1_9)
-        infections.append(n_true_infected_children_1_9 / n_children_ages_1_9)
-
+        prevalence_children_1_9.append(n_true_diseased_children_1_9 / n_children_ages_1_9)
+        infections_children_1_9.append(n_true_infected_children_1_9 / n_children_ages_1_9)
+        
+        n_true_diseased_All = np.count_nonzero(vals['IndD'])
+        n_true_infected_All = np.count_nonzero(vals['IndI'])
+        prevalence_All.append(n_true_diseased_All / len(vals['IndD']))
+        infections_All.append(n_true_infected_All / len(vals['IndI']))
+        
         large_infection_count = (vals['No_Inf'] > params['n_inf_sev'])
         # Cast weights to integer to be able to count
         a, _ = np.histogram(vals['Age'], bins=max_age, weights=large_infection_count.astype(int))
@@ -940,9 +948,13 @@ def sim_Ind_MDA_Include_Survey(params, vals, timesim, burnin,
 
             
     vals['Yearly_threshold_infs'] = yearly_threshold_infs
-    vals['True_Prev_Disease_children_1_9'] = prevalence # save the prevalence in children aged 1-9
-    # vals['True_Infections_Disease_children_1_9'] = infections # save the infections in children aged 1-9 = TYPO???
-    vals['True_Prev_Infection_children_1_9'] = infections
+    
+    # UPDATED code to return population-wide prevalence
+    vals['True_Prev_Disease_children_1_9'] = prevalence_children_1_9 # save the prevalence in children aged 1-9
+    vals['True_Prev_Infection_children_1_9'] = infections_children_1_9
+    vals['True_Prev_Disease'] = prevalence_All
+    vals['True_Prev_Infection'] = infections_All
+    
     vals['State'] = np.random.get_state() # save the state of the simulations
 
     return vals, results
